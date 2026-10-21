@@ -1,0 +1,2 @@
+echo Hello !! Have a nice day!!
+sleep 1

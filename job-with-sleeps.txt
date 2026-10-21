@@ -1,0 +1,7 @@
+The processing starts now!
+sleep 3
+echo The first step is over!!
+sleep 3
+echo The second step is over!!
+sleep 2
+echo Done!!!
