@@ -6,26 +6,10 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <stdlib.h>
+#include "spooler.h"
+int active_jobs = 0;
+job_info jobs[MAX_CHILDREN];
 
-void write_status(const char* path, const char*req_name, int pid, int ppid, const char* status, const char* step_info, const char* full_req, const char* echo_text){
-    char tmp_path[512];
-    snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", path);
-
-    FILE *f = fopen(tmp_path, "w");
-    if(!f) return ;
-
-    fprintf(f, "pid: %d\n", pid);
-    fprintf(f, "ppid: %d\n", ppid);
-    fprintf(f, "request: %s\n", req_name);
-    fprintf(f, "status: %s\n", status);
-
-    if (step_info) fprintf(f, "step: %s\n", step_info);
-    if (echo_text) fprintf(f, "output: %s\n", echo_text);
-
-    fprintf(f, "--- request ---\n%s", full_req);
-    fclose(f);
-    rename(tmp_path, path);
-}
 int main(void){
 
     mkdir("spool", 0755);
@@ -34,6 +18,8 @@ int main(void){
     mkdir("spool/work", 0755);
 
     while(1){
+        save_the_time(time(NULL));
+
         DIR *dir = opendir("spool/inbox");
         if(dir != NULL){
             struct dirent* entry;
@@ -108,8 +94,12 @@ int main(void){
                             }else if (strcmp(cmd, "fail") == 0){
                                 write_status(status_path, entry->d_name, getpid(), getppid(), "ERROR : fail command", step_buf, full_request, echo_mem[0] ? echo_mem: NULL);
                                 exit(1);
-                            }else if(strlen(cmd) > 0){
+                            }else if(strcmp(cmd, "timeout") == 0){
+
+                            }
+                            else if(strlen(cmd) > 0){
                                 write_status(status_path, entry->d_name, getpid(), getppid(), "ERROR : unknown command", step_buf, full_request, echo_mem[0] ? echo_mem : NULL);
+                                exit(1);
                             }
                         }
                         write_status(status_path, entry->d_name, getpid(), getppid(), "DONE", NULL, full_request, echo_mem[0] ? echo_mem : NULL);
@@ -117,6 +107,9 @@ int main(void){
                     }
                     else{
                         close(p[0]);
+                        
+                        add_child(pid, entry->d_name, time(NULL), extract_timeout(new_path), 0);
+
                         FILE *request_file = fopen(new_path, "r");
                         if(request_file){
                             char buf[252];
@@ -132,8 +125,31 @@ int main(void){
             }
             closedir(dir);
         }
+        int wstatus;
+        pid_t wpid;
+        while((wpid = waitpid(-1, &wstatus, WNOHANG)) > 0){
+            for(int i = 0; i < active_jobs; ++i){
+                if(jobs[i].pid == wpid){
+                    if(WIFSIGNALED(wstatus)){
+                        int sig = WTERMSIG(wstatus);
+                        char st_path[512];
+                        snprintf(st_path, sizeof(st_path), "spool/status/%s.%d.status", jobs[i].req_name, wpid);
+
+                        if(jobs[i].ter_sent > 0 && (sig == SIGTERM || sig == SIGKILL)){
+                            write_status(st_path, jobs[i].req_name, wpid, getpid(), "TIMEOUT", NULL, NULL, NULL);
+                        }else{
+                            char err_msg[256];
+                            snprintf(err_msg, sizeof(err_msg), "ERROR signal %d", sig);
+                            write_status(st_path, jobs[i].req_name, wpid, getpid(), err_msg, NULL, NULL, NULL);
+                        }
+                    }
+                    jobs[i] = jobs[active_jobs - 1];
+                    active_jobs --;
+                    break;
+                }
+            }
+        }
         sleep(1);
-        while(waitpid(-1, NULL, WNOHANG) > 0);
     }
     return 0;
 }
