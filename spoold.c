@@ -7,7 +7,25 @@
 #include <sys/wait.h>
 #include <stdlib.h>
 
+void write_status(const char* path, const char*req_name, int pid, int ppid, const char* status, const char* step_info, const char* full_req, const char* echo_text){
+    char tmp_path[512];
+    snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", path);
 
+    FILE *f = fopen(tmp_path, "w");
+    if(!f) return ;
+
+    fprintf(f, "pid: %d\n", pid);
+    fprintf(f, "ppid: %d\n", ppid);
+    fprintf(f, "request: %s\n", req_name);
+    fprintf(f, "status: %s\n", status);
+
+    if (step_info) fprintf(f, "step: %s\n", step_info);
+    if (echo_text) fprintf(f, "output: %s\n", echo_text);
+
+    fprintf(f, "--- request ---\n%s", full_req);
+    fclose(f);
+    rename(tmp_path, path);
+}
 int main(void){
 
     mkdir("spool", 0755);
@@ -53,23 +71,48 @@ int main(void){
                         char status_path[512];           
                         snprintf(status_path, sizeof(status_path), "spool/status/%s.%d.status", entry->d_name, getpid());
 
-                        FILE *status_file = fopen(status_path, "w");
-                        if(status_file){
-                            fprintf(status_file, "pid: %d\n", getpid());
-
-                            fprintf(status_file, "ppid: %d\n", getppid());
-                            fprintf(status_file, "request: %s\n", entry->d_name);
-                            fprintf(status_file, "status: ACK\n");
-                            fprintf(status_file, "--- request ---\n");
-
-                            char buf[256];
-                            int bytes_read;
-                            while ((bytes_read = read(p[0], buf, sizeof(buf))) > 0) {
-                                fwrite(buf, 1, bytes_read, status_file);
-                            }
-                            fclose(status_file);
+                        char full_request[4096];
+                        int bytes_read, total = 0;
+                        while((bytes_read = read(p[0], full_request + total, sizeof(full_request) - total - 1)) > 0){
+                            total += bytes_read;
                         }
+                        full_request[total] = '\0';
                         close(p[0]);
+
+                        write_status(status_path, entry->d_name, getpid(), getppid(), "ACK", NULL, full_request, NULL);
+
+                        char req_copy[4096];
+                        strcpy(req_copy, full_request);
+
+                        char *lines[4096];
+                        int total_lines = 0;
+                        char *token = strtok(req_copy, "\n");
+                        while(token != NULL && total_lines < 100){
+                            lines[total_lines++] = token;
+                            token = strtok(NULL, "\n");
+                        }
+
+                        char echo_mem[256] = "";
+                        for(int i = 0; i < total_lines; ++i){
+                            char step_buf[256];
+                            snprintf(step_buf, sizeof(step_buf), "%d/%d/ %s", i + 1, total_lines, lines[i]);
+
+                            write_status(status_path, entry->d_name, getpid(), getppid(), "RUNNING", step_buf, full_request, echo_mem[0] ? echo_mem : NULL);
+
+                            char cmd[256] = "", arg[256] = "";
+                            sscanf(lines[i], "%s %[^\n]", cmd, arg);
+                            if(strcmp(cmd, "sleep") == 0){
+                                sleep(atoi(arg));
+                            }else if (strcmp(cmd, "echo") == 0){
+                                strncpy(echo_mem, arg, sizeof(echo_mem) - 1);
+                            }else if (strcmp(cmd, "fail") == 0){
+                                write_status(status_path, entry->d_name, getpid(), getppid(), "ERROR : fail command", step_buf, full_request, echo_mem[0] ? echo_mem: NULL);
+                                exit(1);
+                            }else if(strlen(cmd) > 0){
+                                write_status(status_path, entry->d_name, getpid(), getppid(), "ERROR : unknown command", step_buf, full_request, echo_mem[0] ? echo_mem : NULL);
+                            }
+                        }
+                        write_status(status_path, entry->d_name, getpid(), getppid(), "DONE", NULL, full_request, echo_mem[0] ? echo_mem : NULL);
                         exit(0);
                     }
                     else{
