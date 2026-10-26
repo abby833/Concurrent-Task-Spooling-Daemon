@@ -23,7 +23,9 @@ typedef struct {
 } job_info;
 extern int active_jobs;
 extern job_info jobs[MAX_CHILDREN];
+extern int max_jobs; 
 
+int is_started(const char *req_name);
 void add_child(int pid, const char *req_name, time_t time, int time_out, time_t term_sent);
 void save_the_time(time_t now);
 int extract_timeout(const char *filepath);
