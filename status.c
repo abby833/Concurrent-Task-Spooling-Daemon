@@ -1,5 +1,29 @@
 #include "spooler.h"
+
+int is_started(const char *req_name){
+    for(int i = 0; i < active_jobs; ++i){
+        if(strcmp(jobs[i].req_name, req_name) == 0)
+            return 1;
+    }
+
+    DIR *d = opendir("spool/status");
+    if(!d) return 0;
+    
+    struct dirent *e;
+    int status = 0;
+    while((e = readdir(d)) != NULL){
+        if(strncmp(e->d_name, req_name, strlen(req_name)) == 0){
+            status = 1;
+            break;
+        }
+    }
+    closedir(d);
+    return status;
+}
+
 void add_child(int pid, const char *req_name, time_t time, int time_out, time_t term_sent){
+    if (active_jobs >= MAX_CHILDREN) return; 
+    
     jobs[active_jobs].pid = pid;
     strcpy(jobs[active_jobs].req_name, req_name);
     jobs[active_jobs].start_time = time;
