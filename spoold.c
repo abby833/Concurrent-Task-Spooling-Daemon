@@ -35,6 +35,7 @@ int main(void)
     int fifo_fd = open("spool/control.fifo", O_RDWR | O_NONBLOCK);
 
     int draining = 0;
+    int scan_interval_ms = 1000;
     while (1)
     {
         if (sig_count == 1 && draining == 0)
@@ -84,6 +85,18 @@ int main(void)
                     max_jobs = val;
                 }
                 p += 6;
+            }
+
+            p = fbuf;
+            while((p = strstr(p, "interval ")) != NULL){
+                int val = atoi(p + 9);
+                if(val > 0){
+                    scan_interval_ms = val;
+                }else {
+                    printf("Ignored: invalid interval \n");
+                    fflush(stdout);
+                }
+                p += 9;
             }
         }
 
@@ -272,7 +285,7 @@ int main(void)
                 }
             }
         }
-        sleep(1);
+        usleep(scan_interval_ms * 1000);
     }
 
     return 0;
