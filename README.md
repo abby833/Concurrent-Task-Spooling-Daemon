@@ -15,11 +15,10 @@ spool/
 ## Compile the project:
 gcc -Wall -Wextra spoold.c status.c -o spoold
 
-##Start the daemon:
+## Start the daemon:
 ./spoold
 
-Graceful Shutdown & Signals
-
+## Graceful Shutdown & Signals
 The daemon intercepts Ctrl+C (SIGINT) and SIGTERM to shut down safely without corrupting data or leaving zombie processes.
 
     First Ctrl+C (Graceful Drain): Prints a draining notice, stops accepting new requests from the inbox/, allows all currently running children to finish naturally, and then exits.
